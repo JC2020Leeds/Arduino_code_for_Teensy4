@@ -1,3 +1,4 @@
+//https://www.instructables.com/id/DIY-Servo-Motor/
 //Arduino code to control angle of a motor shaft using a potentiometer for feedback
 //Please use a low rpm motor. Not more than about 500 rpm.
 //******POTENTIOMETER SETUP *************

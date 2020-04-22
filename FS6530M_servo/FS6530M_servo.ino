@@ -4,7 +4,7 @@ PWMServo myservo;  // create servo object for controlling servo
                 // max 8 servos can be created
 
 int pos = 0;    // variable to store servo position
-int FS6530M_pin = 9;  // servo pin for FS6530M feetech servo motor
+int FS6530M_pin = 2;  // servo pin for FS6530M feetech servo motor
 
 void setup() {
   // put your setup code here, to run once:
@@ -22,14 +22,14 @@ void loop() {
   delay(200);                       // wait for a second
   digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
   delay(200);                       // wait for a 
-for(pos = 10; pos<110; pos += 1)  //goes from 10 deg to 110 deg (max is 120deg)
+for(pos = 10; pos<180; pos += 1)  //goes from 10 deg to 110 deg (max is 120deg)
 {
   myservo.write(pos);
   
   delay(15);
 }
   Serial.printf("Angle Read %d\r\n", myservo.read());
-for(pos = 120; pos>=1; pos -= 1)
+for(pos = 180; pos>=1; pos -= 1)
 {
   myservo.write(pos);
   delay(15);

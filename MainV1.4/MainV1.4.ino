@@ -2,14 +2,17 @@
 #include <Wire.h>
 #include "I2Cdev.h"
 //#include "MPU6050_6Axis_MotionApps20.h"
+
 #include <PWMServo.h>
+
 #include <Encoder.h>
+
 //#include <PID_v1.h>
 #include <PIDController.h>
 #include <FastPID.h>
 #include <AutoPID.h>
 
-
+PIDController pid;
 
 PWMServo P16;  // create servo object for controlling servo
 PWMServo T16;  // max 8 servos can be created
@@ -76,8 +79,25 @@ double MPU_X_ANGmap;
 #define enX  11
 #define enZ  12
 
+  ///////////////////////////////////<PID-related~~~>/////////////////////////////////////////
+#define KP 0.2
+#define KI 0.01
+#define KD 0
+double x_target_ang, output_angle
+#define min_ang 0
+#define max_ang 90
+
+    ///////////////////////////////////<AutoPID.h>//////////////////////////////////////////////
+    //input/output variables passed by reference, so they are updated automatically
+    // as reference: AutoPID myPID(&temperature, &setPoint, &outputVal, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
+   
+AutoPID x_motor_PID(&Xang, &x_target_ang, &output_angle, min_ang, max_ang, KP, KI, KD);
+unsigned long time_track; //tracks clock time of last angle update
+
+  ///////////////////////////////////<~~~PID-related>/////////////////////////////////////////
+
 long Xang, Zang;
-long Sang;
+long Sang;    // servo angle
 
 int P16_pos = 0;    // variable to store servo position
 int T16_pos = 0;    // variable to store servo position
@@ -89,6 +109,7 @@ int lower_angle = 18;
 int upper_angle = 168;
 int linser_L_pos = lower_angle;     //linear servo lower responsive angle as 18 deg and upper as 168 deg
 int linser_R_pos = upper_angle;
+bool shaftState;
 
 #define P16_pin  9  // servo pin for FS6530M feetech servo motor
 #define T16_pin  10  // servo pin for T16 actuonix linear actuator
@@ -122,8 +143,8 @@ long defZpos = -999;
 
 void setup() {
   // put your setup code here, to run once:
-    //Serial.begin(9600);
-    Serial.begin(115200);
+    Serial.begin(9600);
+    //Serial.begin(115200);
     ///////////////////////////////////<IMU-related~~~>/////////////////////////////////////////    
     /*
     // join I2C bus (I2Cdev library doesn't do this automatically)
@@ -154,6 +175,21 @@ void setup() {
     Wire.endTransmission(true);
     
     ///////////////////////////////////<~~~IMU-related>/////////////////////////////////////////  
+
+    ///////////////////////////////////<PID-related~~~>///////////////////////////////////////// 
+    
+    ///////////////////////////////////<PIDController.h>////////////////////////////////////////
+    //pid.begin();    // initialize the PID instance
+    //pid.setpoint(60);   // The "goal" the PID controller tries to "reach"
+    //pid.tune(1, 1, 1);    // Tune the PID, arguments: kP, kI, kD
+    //pid.limit(-255, 255);    // Limit the PID output between 0 and 255, this is important to get rid of integral windup!
+
+    //int target = pid.setpoint(60); 
+
+    ///////////////////////////////////<AutoPID.h>//////////////////////////////////////////////
+    
+
+    ///////////////////////////////////<~~~PID-related>///////////////////////////////////////// 
     
     pinMode(but_pin_linser_L_and_R, INPUT);
     pinMode(sw_pin, INPUT);
@@ -187,7 +223,6 @@ void setup() {
     Serial.printf("FEETECH servo Angle Read %d\r\n", FEESER_pos);
     Serial.printf("linear servo Left Angle Read %d\r\n", linser_L_pos);
     Serial.printf("Linear servo Right Angle Read %d\r\n\n", linser_R_pos);
-    delay(100);
 }
 
 // ================================================================
@@ -284,13 +319,12 @@ void loop() {
      Serial.print("AngleZ= ");
      Serial.println(MPU_Z_ANG);
      Serial.println("-----------------------------------------");
-     delay(200);
+     delay(100);
 
     
     //converting back to level at 180 deg, ACW 90 deg, CW -90 deg
     MPU_X_ANGmap = map(MPU_X_ANG, 0, 360, -180, 180);
     Serial.println(MPU_X_ANGmap);
-    Serial.println("......................");
 
     servoAngAdj();
   
@@ -303,25 +337,44 @@ void loop() {
   //linser_L.write(pot_valmap_linser_L);
   //linser_R.write(pot_valmap_linser_R);
 
+  ///////////////////////////////////<PID-related~~~>/////////////////////////////////////////
+    // Set motors speed
+    // For PWM maximum possible values are 0 to 255
+    dcMotorSpeed(); 
+    
+
+
+
+  ///////////////////////////////////<~~~PID-related>/////////////////////////////////////////
   
-  //To extend Left shaft and Right shaft to shut the mechanism
+  /////////////////////////////////<To_Open&Shut_linear_servo_shaft~~~>/////////////////////////// 
+  //To extend Left shaft and Right shaft to shut the mechanism via entering char in serial with keyboard
+  if (Serial.available()){
+    char ch = Serial.read();
+    String readtxt += ch;
+
+    if (readtxt == 's' && linser_L_pos >= upper_angle && linser_R_pos <=lower_angle){
+      linser_L.write(lower_angle);
+      linser_R.write(upper_angle);
+    }
+    else if (readtxt == 'o' && linser_L_pos <= lower_angle && linser_R_pos >=upper_angle){
+      linser_L.write(upper_angle);
+      linser_R.write(lower_angle);
+    }
+  }
+  
+  //To extend Left shaft and Right shaft to shut the mechanism via button 
   if (but_L_and_R_state == HIGH && linser_L_pos <= lower_angle && linser_R_pos >=upper_angle){
     linser_L.write(upper_angle);
     linser_R.write(lower_angle);
-    delay(300);    
+    delay(100);    
   }
   else if (but_L_and_R_state == HIGH && linser_L_pos >= upper_angle && linser_R_pos <=lower_angle){
     linser_L.write(lower_angle);
     linser_R.write(upper_angle);
-    delay(300);    
+    delay(100);    
   }
-  
-  // Set motors speed
-  // For PWM maximum possible values are 0 to 255
-  analogWrite(enX, 130);
-  analogWrite(enZ, 255);
-
-
+  /////////////////////////////////<~~~To_Open&Shut_linear_servo_shaft>///////////////////////////  
 
   if (jx_valmap > 30 && jx_valmap <150 && jy_valmap > 30 && jy_valmap <150){
     digitalWrite(x_cw, LOW);
@@ -333,8 +386,7 @@ void loop() {
   while (jx_valmap >= 150){
       // Set motors speed
   // For PWM maximum possible values are 0 to 255
-    analogWrite(enX, 130);
-    analogWrite(enZ, 0);
+    dcMotorSpeed(); 
     digitalWrite(x_cw, HIGH);
     digitalWrite(x_acw, LOW);
     digitalWrite(z_cw, LOW);
@@ -345,8 +397,7 @@ void loop() {
   while (jx_valmap <= 30){
       // Set motors speed
   // For PWM maximum possible values are 0 to 255
-    analogWrite(enX, 130);
-    analogWrite(enZ, 0);
+    dcMotorSpeed(); 
     digitalWrite(x_cw, LOW);
     digitalWrite(x_acw, HIGH);
     digitalWrite(z_cw, LOW);
@@ -357,8 +408,7 @@ void loop() {
   while (jy_valmap >= 150){
       // Set motors speed
   // For PWM maximum possible values are 0 to 255
-    analogWrite(enX, 130);
-    analogWrite(enZ, 0);    
+    dcMotorSpeed();  
     digitalWrite(x_cw, LOW);
     digitalWrite(x_acw, LOW);
     digitalWrite(z_cw, HIGH);
@@ -369,8 +419,7 @@ void loop() {
   while (jy_valmap <= 30){
       // Set motors speed
   // For PWM maximum possible values are 0 to 255
-    analogWrite(enX, 130);
-    analogWrite(enZ, 0);    
+    dcMotorSpeed();  
     digitalWrite(x_cw, LOW);
     digitalWrite(x_acw, LOW);
     digitalWrite(z_cw, LOW);
@@ -384,7 +433,7 @@ void loop() {
   Serial.printf("Linear servo Right Angle Read: %d\r\n", linser_R_pos);
   //Serial.printf("Potentiometer control linear servo R: %d\r\n\n", pot_valmap_linser_R);
   Serial.printf("Button linear servo L&R: %d\r\n\n", but_L_and_R_state);
-  delay(200);
+  delay(100);
 
 
 
@@ -409,64 +458,34 @@ void loop() {
     return jy_valmap;
   }
 
+
+/*
 // Put following functions into void loop()
   void initialiseArm(){
     //reset arm to horizontal position and fully retracted
     fullRetraction();
-      // adjust x axis motor to horizontal
-      ///////////////*********** code to adjust to horizontal angle
+      //% adjust x axis motor to horizontal
+      //{} code to adjust to horizontal angle
         digitalWrite(x_cw, HIGH);
         digitalWrite(x_acw, LOW);
         digitalWrite(z_cw, LOW);
         digitalWrite(z_acw, LOW);
-  }
-
-  void flightMode(){
-    while (Realsense_guided_location_found ==false){
-      // pre-gazebo dynamics simulation estimation of arm pointing dowards position for balanced flight
-      // adjust x axis motor to approximately 70deg form horizontal
-      if (distance_from_ground >= 2){         // 2m off ground (use double precision; define above)
-        /////////////*********** code to adjust ot 70deg form horizontal
-        digitalWrite(x_cw, LOW);
-        digitalWrite(x_acw, HIGH);
-        digitalWrite(z_cw, LOW);
-        digitalWrite(z_acw, LOW);
-      }
-      else if (distance_from_ground < 2){
-      // adjust x axis motor to horizontal
-      ///////////////*********** code to adjust to horizontal angle
-        digitalWrite(x_cw, HIGH);
-        digitalWrite(x_acw, LOW);
-        digitalWrite(z_cw, LOW);
-        digitalWrite(z_acw, LOW);
-      }
-    }
   }
 
   
   // Functions to achieve T16 and P16 full extension with P16 react to platform distance change
   void fullExtension(){
-    
     //% T16 full extend
     T16.write(0);
     while (T16_pos < 180){
       T16_pos++;
       T16.write(T16_pos);
     }
-    
-    //% adjusting X axis dc motor angle to find appropriate height (100mm (ie. P16 stroke length dependent))
-    //from g-robot base to platform
-    //USE PID HERE
-      
-    
-    //% when realsense find suitable location on platform
-    
-    
+
     //% lower the g-robot via P16 extension 
       P16.write(0);
       for (P16_pos = 0; P16_pos <= 180; P16_pos++){
         P16.write(P16_pos);
-        
       }
   }
 
@@ -474,7 +493,6 @@ void loop() {
           //% raise the g-robot via P16 retraction 
     for (P16_pos = 0; P16_pos <= 180; P16_pos++){
       P16.write(P16_pos);
-      
     }
     
     //% T16 full retract
@@ -483,28 +501,74 @@ void loop() {
       T16.write(T16_pos);
     }    
 
-
-
-
   }
-*/
+
 
   
-/*    
+//// Alter between deploy() <deploy mode>; retrieve() <retrieve mode>; flightMode() <flight mode>
+  void flightMode(){
+    fullRetraction();
+    if (ground_robot_attachment == true){
+      shutshaft();
+    }
+      
+    while (Realsense_guided_location_found ==false){
+      // pre-gazebo dynamics simulation estimation of arm pointing dowards position for balanced flight
+      // adjust x axis motor to approximately 70deg form horizontal
+      if (distance_from_ground >= 2){         // 2m off ground (use double precision; define above)
+        //////////// could be accessed through pi 4 or Pixhawk 4 directly
+        //{} code to adjust to 70deg form horizontal
+        digitalWrite(x_cw, LOW);
+        digitalWrite(x_acw, HIGH);
+        digitalWrite(z_cw, LOW);
+        digitalWrite(z_acw, LOW);
+      }
+      else if (distance_from_ground < 2){
+      //% adjust x axis motor to horizontal
+      //{} code to adjust to horizontal angle
+        digitalWrite(x_cw, HIGH);
+        digitalWrite(x_acw, LOW);
+        digitalWrite(z_cw, LOW);
+        digitalWrite(z_acw, LOW);
+      }
+    }
+  }
+  
   void deploy(){
-  // including the entire deployment process (starting with arm fully retracted and parallel to ground)
-    //% void fullExtension() + below + void fullRetraction()
+  // including the entire deployment process (starting with arm fully retracted and aimed (angled) to ground)
+    //% when realsense find suitable location on platform; using void fullExtension() + below code + void fullRetraction()
+    fullExtension();
+   
+    //% adjusting X axis dc motor angle to horizontal
+    //USE PID HERE
+      
+    //% find appropriate height (100mm (ie. P16 stroke length dependent))
     
-    //% realsense confirm location then release the linear servos
+    //% realsense confirm location then release the linear servos and only confirm when pi cam confirms off too
+    openShaft();
+        
     //% let g-robot drive off and confirm with pi cam (via OpenCV and tags) then retract back to default mode
+    fullRetraction();
+    
     //% ie. arm parallel to ground and fully retracted both T16 and P16 with servo 90 deg to armprocess of deploy and retrieve, using all sensors and actuators
+    //% when delivery is confirmed to be done, send signal to pi 4 to take off and leave
+  
   }
 
   void retrieve(){
+    //% additional to routine functions defined before(above), need signal sent from pi zero/cam confirming
+    //% the match and alignment of the end effector A&B
 
+    //% closes the shaft when signal is received and recheck via pi cam that alignment and position are in place
+    shutShaft();
+    //% retrieve is pi cam guided + realsense
+    //% before sending signal to pi 4 and pixhawk for take off
+    
   }
 
-  */
+
+*/
+
 
   void servoAngAdj(){
     // MPU6050 to be placed on servo motor
@@ -515,6 +579,30 @@ void loop() {
       FEESER.write(270+MPU_X_ANGmap);
     }
   }
+
+
+  void dcMotorSpeed(){
+      // Set motors speed
+  // For PWM maximum possible values are 0 to 255
+  // minimum working PWM signal is 95; 255 for highest speed/torque
+  analogWrite(enX, 255);
+  analogWrite(enZ, 130);
+  }
+
+  void shutShaft(){
+    linser_L.write(lower_angle);
+    linser_R.write(upper_angle);
+    return shaftState = true;
+  }
+
+  void openShaft(){
+    linser_L.write(upper_angle);
+    linser_R.write(lower_angle);
+    delay(300);    
+    return shaftState = false;
+  }
+
+
   ///~Functions///
 
   /*///old codes~///
